@@ -15,7 +15,7 @@ fn main() {
     // Check if repository is dirty
     if let Ok(output) = Command::new("git").args(["diff", "--shortstat"]).output() {
         let is_dirty = !output.stdout.is_empty();
-        println!("cargo:rustc-env=GIT_DIRTY={}", is_dirty);
+        println!("cargo:rustc-env=GIT_DIRTY={is_dirty}");
     } else {
         println!("cargo:rustc-env=GIT_DIRTY=false");
     }
