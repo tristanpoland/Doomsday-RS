@@ -29,9 +29,9 @@ async function apiRequest<T>(
     ? localStorage.getItem('doomsday-token') 
     : null;
 
-  const headers: HeaderInit = {
+  const headers: Record<string, string> = {
     'Content-Type': 'application/json',
-    ...options.headers,
+    ...(options.headers as Record<string, string>),
   };
 
   if (token) {
