@@ -76,7 +76,7 @@ docker-compose-logs: ## View docker-compose logs
 
 lint: ## Run linting
 	@echo "Running Rust linting..."
-	cargo clippy -- -D warnings
+	cargo +stable clippy -- -D warnings
 	@echo "Running frontend linting..."
 	cd frontend && npm run lint
 
@@ -127,7 +127,7 @@ config-example: ## Show example configuration
 
 # Security
 security-audit: ## Run security audit
-	cargo audit
+	cargo +stable audit
 
 update-deps: ## Update dependencies
 	cargo update
