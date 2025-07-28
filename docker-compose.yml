@@ -1,0 +1,39 @@
+version: '3.8'
+
+services:
+  doomsday-backend:
+    build: .
+    container_name: doomsday-server
+    ports:
+      - "8111:8111"
+    volumes:
+      - ./ddayconfig.yml:/app/ddayconfig.yml:ro
+      - ./logs:/app/logs
+    environment:
+      - RUST_LOG=info
+      - RUST_BACKTRACE=1
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8111/v1/info"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  doomsday-frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    container_name: doomsday-frontend
+    ports:
+      - "3000:3000"
+    environment:
+      - BACKEND_URL=http://doomsday-backend:8111
+      - NODE_ENV=production
+    depends_on:
+      doomsday-backend:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  logs:

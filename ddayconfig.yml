@@ -1,0 +1,80 @@
+# Doomsday Certificate Monitor Configuration
+
+# Backend configurations - define where to fetch certificates from
+backends:
+  # Vault backend example
+  - type: vault
+    name: production-vault
+    refresh_interval: 30  # minutes
+    properties:
+      url: https://vault.example.com
+      token: "hvs.XXXXXXXXXXXXXXXXXXXXXX"
+      mount_path: secret
+      secret_path: /certificates
+
+  # CredHub backend example  
+  - type: credhub
+    name: pcf-credhub
+    refresh_interval: 60  # minutes
+    properties:
+      url: https://credhub.example.com:8844
+      client_id: doomsday_client
+      client_secret: "super_secret_password"
+
+  # Ops Manager backend example
+  - type: opsmgr
+    name: pcf-opsmgr
+    refresh_interval: 120  # minutes
+    properties:
+      url: https://opsman.example.com
+      username: admin
+      password: "admin_password"
+
+  # TLS client backend example - direct TLS endpoint checking
+  - type: tlsclient
+    name: web-endpoints
+    refresh_interval: 15  # minutes
+    properties:
+      targets:
+        - host: example.com
+          port: 443
+        - host: api.example.com  
+          port: 443
+          server_name: api.example.com
+        - host: internal.example.com
+          port: 8443
+
+# Server configuration
+server:
+  port: 8111
+  
+  # Optional TLS configuration for the server itself
+  # tls:
+  #   cert: /path/to/server.crt
+  #   key: /path/to/server.key
+  
+  # Authentication configuration
+  auth:
+    type: userpass  # Options: none, userpass
+    properties:
+      users:
+        admin: "secure_password_123"
+        readonly: "readonly_password"
+      session_timeout: 60  # minutes
+      refresh_on_use: true
+
+# Optional notifications configuration
+notifications:
+  doomsday_url: https://doomsday.example.com
+  
+  backend:
+    type: slack  # Options: slack, shout
+    properties:
+      webhook_url: https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK
+      channel: "#alerts"
+      username: "Doomsday Bot"
+  
+  schedule:
+    type: cron  # Options: constant, cron
+    properties:
+      expression: "0 9 * * *"  # Daily at 9 AM
