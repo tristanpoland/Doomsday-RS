@@ -7,6 +7,6 @@ pub fn version() -> String {
     } else {
         ""
     };
-    
+
     format!("{}-{}{}", VERSION, git_hash, dirty)
 }

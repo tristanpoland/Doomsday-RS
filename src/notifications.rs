@@ -34,14 +34,15 @@ pub fn create_notification_backend(
         "slack" => {
             let backend = SlackNotificationBackend::from_config(properties)?;
             Ok(Box::new(backend))
-        },
+        }
         "shout" => {
             let backend = ShoutNotificationBackend::from_config(properties)?;
             Ok(Box::new(backend))
-        },
-        _ => Err(crate::DoomsdayError::config(
-            format!("Unknown notification backend: {}", backend_type)
-        )),
+        }
+        _ => Err(crate::DoomsdayError::config(format!(
+            "Unknown notification backend: {}",
+            backend_type
+        ))),
     }
 }
 
@@ -52,33 +53,33 @@ pub struct NotificationService {
 
 impl NotificationService {
     pub fn new(config: &NotificationConfig) -> crate::Result<Self> {
-        let backend = create_notification_backend(
-            &config.backend.backend_type,
-            &config.backend.properties,
-        )?;
-        
+        let backend =
+            create_notification_backend(&config.backend.backend_type, &config.backend.properties)?;
+
         Ok(NotificationService {
             backend,
             doomsday_url: config.doomsday_url.clone(),
         })
     }
-    
+
     pub async fn check_and_notify(&self, certificates: &[CacheItem]) -> crate::Result<()> {
         let now = Utc::now();
-        
-        let expired: Vec<CacheItem> = certificates.iter()
+
+        let expired: Vec<CacheItem> = certificates
+            .iter()
             .filter(|cert| cert.not_after < now)
             .cloned()
             .collect();
-        
-        let expiring_soon: Vec<CacheItem> = certificates.iter()
+
+        let expiring_soon: Vec<CacheItem> = certificates
+            .iter()
             .filter(|cert| {
                 let days_until_expiry = (cert.not_after - now).num_days();
                 days_until_expiry > 0 && days_until_expiry <= 30
             })
             .cloned()
             .collect();
-        
+
         if !expired.is_empty() {
             let message = NotificationMessage {
                 title: "⚠️ Expired Certificates".to_string(),
@@ -90,10 +91,10 @@ impl NotificationService {
                 urgency: NotificationUrgency::Critical,
                 certificates: expired,
             };
-            
+
             self.backend.send_notification(&message).await?;
         }
-        
+
         if !expiring_soon.is_empty() {
             let message = NotificationMessage {
                 title: "⏰ Certificates Expiring Soon".to_string(),
@@ -105,10 +106,10 @@ impl NotificationService {
                 urgency: NotificationUrgency::High,
                 certificates: expiring_soon,
             };
-            
+
             self.backend.send_notification(&message).await?;
         }
-        
+
         Ok(())
     }
 }
@@ -129,20 +130,23 @@ impl SlackNotificationBackend {
             client: reqwest::Client::new(),
         }
     }
-    
+
     pub fn from_config(properties: &HashMap<String, serde_yaml::Value>) -> crate::Result<Self> {
-        let webhook_url = properties.get("webhook_url")
+        let webhook_url = properties
+            .get("webhook_url")
             .and_then(|v| v.as_str())
             .ok_or_else(|| crate::DoomsdayError::config("Slack webhook_url is required"))?;
-        
-        let channel = properties.get("channel")
+
+        let channel = properties
+            .get("channel")
             .and_then(|v| v.as_str())
             .map(|s| s.to_string());
-        
-        let username = properties.get("username")
+
+        let username = properties
+            .get("username")
             .and_then(|v| v.as_str())
             .map(|s| s.to_string());
-        
+
         Ok(SlackNotificationBackend::new(
             webhook_url.to_string(),
             channel,
@@ -155,19 +159,19 @@ impl SlackNotificationBackend {
 impl NotificationBackend for SlackNotificationBackend {
     async fn send_notification(&self, message: &NotificationMessage) -> crate::Result<()> {
         let color = match message.urgency {
-            NotificationUrgency::Low => "#36a64f",     // Green
+            NotificationUrgency::Low => "#36a64f",      // Green
             NotificationUrgency::Normal => "#2196F3",   // Blue
             NotificationUrgency::High => "#ff9800",     // Orange
             NotificationUrgency::Critical => "#f44336", // Red
         };
-        
+
         let mut fields = vec![];
-        
+
         // Group certificates by expiry status
         let now = Utc::now();
         let mut expired_count = 0;
         let mut expiring_soon_count = 0;
-        
+
         for cert in &message.certificates {
             if cert.not_after < now {
                 expired_count += 1;
@@ -175,7 +179,7 @@ impl NotificationBackend for SlackNotificationBackend {
                 expiring_soon_count += 1;
             }
         }
-        
+
         if expired_count > 0 {
             fields.push(json!({
                 "title": "Expired",
@@ -183,7 +187,7 @@ impl NotificationBackend for SlackNotificationBackend {
                 "short": true
             }));
         }
-        
+
         if expiring_soon_count > 0 {
             fields.push(json!({
                 "title": "Expiring Soon",
@@ -191,7 +195,7 @@ impl NotificationBackend for SlackNotificationBackend {
                 "short": true
             }));
         }
-        
+
         let mut payload = json!({
             "text": message.title,
             "attachments": [{
@@ -202,27 +206,29 @@ impl NotificationBackend for SlackNotificationBackend {
                 "ts": Utc::now().timestamp()
             }]
         });
-        
+
         if let Some(channel) = &self.channel {
             payload["channel"] = json!(channel);
         }
-        
+
         if let Some(username) = &self.username {
             payload["username"] = json!(username);
         }
-        
-        let response = self.client
+
+        let response = self
+            .client
             .post(&self.webhook_url)
             .json(&payload)
             .send()
             .await?;
-        
+
         if !response.status().is_success() {
-            return Err(crate::DoomsdayError::internal(
-                format!("Slack notification failed: {}", response.status())
-            ));
+            return Err(crate::DoomsdayError::internal(format!(
+                "Slack notification failed: {}",
+                response.status()
+            )));
         }
-        
+
         Ok(())
     }
 }
@@ -239,12 +245,13 @@ impl ShoutNotificationBackend {
             client: reqwest::Client::new(),
         }
     }
-    
+
     pub fn from_config(properties: &HashMap<String, serde_yaml::Value>) -> crate::Result<Self> {
-        let url = properties.get("url")
+        let url = properties
+            .get("url")
             .and_then(|v| v.as_str())
             .ok_or_else(|| crate::DoomsdayError::config("Shout URL is required"))?;
-        
+
         Ok(ShoutNotificationBackend::new(url.to_string()))
     }
 }
@@ -264,19 +271,16 @@ impl NotificationBackend for ShoutNotificationBackend {
             "certificates": message.certificates.len(),
             "timestamp": Utc::now().to_rfc3339(),
         });
-        
-        let response = self.client
-            .post(&self.url)
-            .json(&payload)
-            .send()
-            .await?;
-        
+
+        let response = self.client.post(&self.url).json(&payload).send().await?;
+
         if !response.status().is_success() {
-            return Err(crate::DoomsdayError::internal(
-                format!("Shout notification failed: {}", response.status())
-            ));
+            return Err(crate::DoomsdayError::internal(format!(
+                "Shout notification failed: {}",
+                response.status()
+            )));
         }
-        
+
         Ok(())
     }
 }

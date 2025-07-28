@@ -66,7 +66,7 @@ impl Config {
         let config: Config = serde_yaml::from_str(&content)?;
         Ok(config)
     }
-    
+
     pub fn default() -> Self {
         Config {
             backends: vec![],
@@ -81,32 +81,40 @@ impl Config {
             notifications: None,
         }
     }
-    
+
     pub fn validate(&self) -> crate::Result<()> {
         if self.backends.is_empty() {
-            return Err(crate::DoomsdayError::config("At least one backend must be configured"));
+            return Err(crate::DoomsdayError::config(
+                "At least one backend must be configured",
+            ));
         }
-        
+
         for backend in &self.backends {
             if backend.name.is_empty() {
                 return Err(crate::DoomsdayError::config("Backend name cannot be empty"));
             }
-            
+
             match backend.backend_type.as_str() {
-                "vault" | "credhub" | "opsmgr" | "tlsclient" => {},
-                _ => return Err(crate::DoomsdayError::config(
-                    format!("Unknown backend type: {}", backend.backend_type)
-                )),
+                "vault" | "credhub" | "opsmgr" | "tlsclient" => {}
+                _ => {
+                    return Err(crate::DoomsdayError::config(format!(
+                        "Unknown backend type: {}",
+                        backend.backend_type
+                    )))
+                }
             }
         }
-        
+
         match self.server.auth.auth_type.as_str() {
-            "none" | "userpass" => {},
-            _ => return Err(crate::DoomsdayError::config(
-                format!("Unknown auth type: {}", self.server.auth.auth_type)
-            )),
+            "none" | "userpass" => {}
+            _ => {
+                return Err(crate::DoomsdayError::config(format!(
+                    "Unknown auth type: {}",
+                    self.server.auth.auth_type
+                )))
+            }
         }
-        
+
         Ok(())
     }
 }
@@ -130,9 +138,9 @@ impl ClientConfig {
     pub fn load() -> crate::Result<Self> {
         let config_dir = dirs::config_dir()
             .ok_or_else(|| crate::DoomsdayError::config("Could not find config directory"))?;
-        
+
         let config_path = config_dir.join("doomsday").join("config.yml");
-        
+
         if config_path.exists() {
             let content = fs::read_to_string(&config_path)?;
             let config: ClientConfig = serde_yaml::from_str(&content)?;
@@ -144,23 +152,24 @@ impl ClientConfig {
             })
         }
     }
-    
+
     pub fn save(&self) -> crate::Result<()> {
         let config_dir = dirs::config_dir()
             .ok_or_else(|| crate::DoomsdayError::config("Could not find config directory"))?;
-        
+
         let doomsday_dir = config_dir.join("doomsday");
         fs::create_dir_all(&doomsday_dir)?;
-        
+
         let config_path = doomsday_dir.join("config.yml");
         let content = serde_yaml::to_string(self)?;
         fs::write(&config_path, content)?;
-        
+
         Ok(())
     }
-    
+
     pub fn current_target(&self) -> Option<&ClientTarget> {
-        self.current_target.as_ref()
+        self.current_target
+            .as_ref()
             .and_then(|name| self.targets.get(name))
     }
 }

@@ -8,7 +8,7 @@ pub trait Accessor: Send + Sync {
     fn name(&self) -> &str;
 }
 
-pub mod vault;
 pub mod credhub;
-pub mod opsmgr; 
+pub mod opsmgr;
 pub mod tlsclient;
+pub mod vault;
