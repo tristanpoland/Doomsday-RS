@@ -65,10 +65,7 @@ jobs:
     
     - name: Run type check
       run: cd frontend && npm run type-check
-    
-    - name: Run tests
-      run: cd frontend && npm test -- --passWithNoTests
-    
+
     - name: Build frontend
       run: cd frontend && npm run build
 

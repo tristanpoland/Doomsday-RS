@@ -3,7 +3,7 @@ use std::process::Command;
 fn main() {
     // Get git information for version
     if let Ok(output) = Command::new("git")
-        .args(&["rev-parse", "--short", "HEAD"])
+        .args(["rev-parse", "--short", "HEAD"])
         .output()
     {
         let git_hash = String::from_utf8(output.stdout).unwrap_or_default();
@@ -13,7 +13,7 @@ fn main() {
     }
 
     // Check if repository is dirty
-    if let Ok(output) = Command::new("git").args(&["diff", "--shortstat"]).output() {
+    if let Ok(output) = Command::new("git").args(["diff", "--shortstat"]).output() {
         let is_dirty = !output.stdout.is_empty();
         println!("cargo:rustc-env=GIT_DIRTY={}", is_dirty);
     } else {
