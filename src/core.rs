@@ -21,13 +21,22 @@ pub struct Core {
 
 impl Core {
     pub async fn new(config: Config) -> crate::Result<Self> {
+        tracing::info!("Initializing Core system with {} backends", config.backends.len());
+        
         let cache = Cache::new();
+        tracing::debug!("Cache initialized");
+        
         let scheduler = Scheduler::default();
+        tracing::debug!("Scheduler initialized");
+        
         let mut accessors = HashMap::new();
         
         for backend_config in &config.backends {
+            tracing::info!("Creating accessor for backend: {} (type: {})", 
+                backend_config.name, backend_config.backend_type);
             let accessor = create_accessor(backend_config)?;
             accessors.insert(backend_config.name.clone(), accessor);
+            tracing::debug!("Accessor created for backend: {}", backend_config.name);
         }
         
         let core = Core {
@@ -37,21 +46,27 @@ impl Core {
             scheduler,
         };
         
-        // Schedule initial refresh tasks
+        tracing::info!("Scheduling initial refresh tasks...");
         core.schedule_refresh_tasks().await;
         
+        tracing::info!("Core system initialization completed");
         Ok(core)
     }
     
     pub async fn populate_cache(&self) -> crate::Result<PopulateStats> {
+        tracing::info!("Starting cache population from all backends");
         let start_time = Instant::now();
         let accessors = self.accessors.read().await;
         let mut all_paths = Vec::new();
         
+        tracing::debug!("Found {} active backends", accessors.len());
+        
         // Collect all paths from all backends
         for (backend_name, accessor) in accessors.iter() {
+            tracing::info!("Listing paths from backend: {}", backend_name);
             match accessor.list().await {
                 Ok(paths) => {
+                    tracing::info!("Backend {} returned {} paths", backend_name, paths.len());
                     for path in paths {
                         all_paths.push((backend_name.clone(), path));
                     }
@@ -63,12 +78,17 @@ impl Core {
         }
         
         let num_paths = all_paths.len();
+        tracing::info!("Processing {} total paths across all backends", num_paths);
+        
         let mut num_certs = 0;
         let mut new_cache_objects: HashMap<String, CacheObject> = HashMap::new();
         
         // Process paths in chunks for better performance
         let chunk_size = 100;
-        for chunk in all_paths.chunks(chunk_size) {
+        tracing::debug!("Processing paths in chunks of {}", chunk_size);
+        
+        for (chunk_idx, chunk) in all_paths.chunks(chunk_size).enumerate() {
+            tracing::debug!("Processing chunk {} ({} paths)", chunk_idx + 1, chunk.len());
             let mut tasks = Vec::new();
             
             for (backend_name, path) in chunk {
@@ -125,6 +145,7 @@ impl Core {
         }
         
         // Update cache with new data
+        tracing::info!("Updating cache with {} certificates", new_cache_objects.len());
         let diff = CacheDiff {
             added: new_cache_objects,
             removed: Vec::new(), // TODO: Implement proper diffing to remove stale entries
@@ -134,6 +155,9 @@ impl Core {
         
         let duration_ms = start_time.elapsed().as_millis() as u64;
         
+        tracing::info!("Cache population completed: {} certificates, {} paths, {}ms", 
+            num_certs, num_paths, duration_ms);
+        
         Ok(PopulateStats {
             num_certs,
             num_paths,
@@ -142,20 +166,31 @@ impl Core {
     }
     
     pub async fn refresh_backend(&self, backend_name: &str) -> crate::Result<PopulateStats> {
+        tracing::info!("Starting refresh for backend: {}", backend_name);
         let start_time = Instant::now();
         let accessors = self.accessors.read().await;
         
         let accessor = accessors.get(backend_name)
-            .ok_or_else(|| crate::DoomsdayError::not_found(format!("Backend {} not found", backend_name)))?;
+            .ok_or_else(|| {
+                tracing::error!("Backend {} not found in accessor list", backend_name);
+                crate::DoomsdayError::not_found(format!("Backend {} not found", backend_name))
+            })?;
         
+        tracing::debug!("Listing paths from backend: {}", backend_name);
         let paths = accessor.list().await?;
         let num_paths = paths.len();
+        tracing::info!("Backend {} has {} paths to process", backend_name, num_paths);
+        
         let mut num_certs = 0;
         let mut backend_cache_objects: HashMap<String, CacheObject> = HashMap::new();
         
         // Process paths in chunks
         let chunk_size = 50;
-        for chunk in paths.chunks(chunk_size) {
+        tracing::debug!("Processing {} paths in chunks of {}", num_paths, chunk_size);
+        
+        for (chunk_idx, chunk) in paths.chunks(chunk_size).enumerate() {
+            tracing::debug!("Processing chunk {} for backend {} ({} paths)", 
+                chunk_idx + 1, backend_name, chunk.len());
             let mut tasks = Vec::new();
             
             for path in chunk {
@@ -206,6 +241,7 @@ impl Core {
         }
         
         // Remove old entries for this backend from cache
+        tracing::debug!("Checking for stale cache entries from backend: {}", backend_name);
         let all_cache_items = self.cache.list();
         let mut to_remove = Vec::new();
         
@@ -222,6 +258,9 @@ impl Core {
             }
         }
         
+        tracing::info!("Backend {} refresh: {} certificates to add, {} to remove", 
+            backend_name, backend_cache_objects.len(), to_remove.len());
+        
         let diff = CacheDiff {
             added: backend_cache_objects,
             removed: to_remove,
@@ -230,6 +269,9 @@ impl Core {
         self.cache.update_from_diff(diff)?;
         
         let duration_ms = start_time.elapsed().as_millis() as u64;
+        
+        tracing::info!("Backend {} refresh completed: {} certificates, {} paths, {}ms", 
+            backend_name, num_certs, num_paths, duration_ms);
         
         Ok(PopulateStats {
             num_certs,
@@ -248,25 +290,35 @@ impl Core {
     
     pub async fn schedule_refresh_tasks(&self) {
         let config = self.config.read().await;
+        tracing::info!("Scheduling refresh tasks for {} backends", config.backends.len());
         
         for backend_config in &config.backends {
+            tracing::debug!("Scheduling refresh task for backend: {}", backend_config.name);
             let task = Task::RefreshBackend {
                 backend_name: backend_config.name.clone(),
             };
             
             if let Err(e) = self.scheduler.schedule_task(task) {
                 tracing::error!("Failed to schedule refresh task for {}: {}", backend_config.name, e);
+            } else {
+                tracing::debug!("Refresh task scheduled for backend: {}", backend_config.name);
             }
         }
+        
+        tracing::info!("All refresh tasks scheduled");
     }
     
     pub async fn schedule_periodic_tasks(&self) {
         let config = self.config.read().await;
+        tracing::info!("Setting up periodic refresh tasks for {} backends", config.backends.len());
         
         for backend_config in &config.backends {
             if let Some(refresh_interval) = backend_config.refresh_interval {
                 let backend_name = backend_config.name.clone();
                 let scheduler = self.scheduler.clone();
+                
+                tracing::info!("Setting up periodic refresh for backend {} every {} minutes", 
+                    backend_name, refresh_interval);
                 
                 tokio::spawn(async move {
                     let mut interval = tokio::time::interval(
@@ -275,6 +327,8 @@ impl Core {
                     
                     loop {
                         interval.tick().await;
+                        
+                        tracing::debug!("Periodic refresh triggered for backend: {}", backend_name);
                         
                         let task = Task::RefreshBackend {
                             backend_name: backend_name.clone(),
@@ -285,8 +339,12 @@ impl Core {
                         }
                     }
                 });
+            } else {
+                tracing::debug!("No periodic refresh configured for backend: {}", backend_config.name);
             }
         }
+        
+        tracing::info!("All periodic refresh tasks configured");
     }
     
     pub async fn get_config(&self) -> Config {

@@ -55,6 +55,8 @@ impl VaultAccessor {
     }
     
     pub fn from_config(name: String, properties: &HashMap<String, serde_yaml::Value>) -> crate::Result<Self> {
+        tracing::info!("Configuring Vault accessor: {}", name);
+        
         let url = properties.get("url")
             .and_then(|v| v.as_str())
             .ok_or_else(|| crate::DoomsdayError::config("Vault URL is required"))?;
@@ -71,8 +73,13 @@ impl VaultAccessor {
             .and_then(|v| v.as_str())
             .unwrap_or("/");
         
+        tracing::debug!("Vault configuration: url={}, mount_path={}, secret_path={}", 
+            url, mount_path, secret_path);
+        
         let base_url = Url::parse(url)
             .map_err(|e| crate::DoomsdayError::config(format!("Invalid Vault URL: {}", e)))?;
+        
+        tracing::info!("Vault accessor configured successfully: {}", name);
         
         Self::new(
             name,
@@ -84,16 +91,21 @@ impl VaultAccessor {
     }
     
     async fn list_recursive(&self, path: &str) -> crate::Result<Vec<String>> {
+        tracing::info!("Starting recursive listing from Vault path: {}", path);
         let mut all_paths = Vec::new();
         let mut to_process = vec![path.to_string()];
         
         while let Some(current_path) = to_process.pop() {
+            tracing::debug!("Vault: listing path {}", current_path);
+            
             let url = format!(
                 "{}/v1/{}/metadata/{}",
                 self.base_url.as_str().trim_end_matches('/'),
                 self.mount_path,
                 current_path.trim_start_matches('/')
             );
+            
+            tracing::debug!("Vault API request: GET {}", url);
             
             let response = self.client
                 .get(&url)
@@ -104,6 +116,8 @@ impl VaultAccessor {
             
             if response.status().is_success() {
                 let vault_response: VaultListResponse = response.json().await?;
+                tracing::debug!("Vault returned {} keys for path {}", 
+                    vault_response.data.keys.len(), current_path);
                 
                 for key in vault_response.data.keys {
                     let full_path = if current_path.is_empty() || current_path == "/" {
@@ -114,15 +128,21 @@ impl VaultAccessor {
                     
                     if key.ends_with('/') {
                         // It's a directory, add to processing queue
+                        tracing::debug!("Vault: found directory {}, adding to queue", full_path);
                         to_process.push(full_path.trim_end_matches('/').to_string());
                     } else {
                         // It's a secret
+                        tracing::debug!("Vault: found secret {}", full_path);
                         all_paths.push(full_path);
                     }
                 }
+            } else {
+                tracing::warn!("Vault API request failed with status: {} for path: {}", 
+                    response.status(), current_path);
             }
         }
         
+        tracing::info!("Vault recursive listing completed: {} total paths found", all_paths.len());
         Ok(all_paths)
     }
 }
@@ -130,16 +150,26 @@ impl VaultAccessor {
 #[async_trait]
 impl Accessor for VaultAccessor {
     async fn list(&self) -> crate::Result<PathList> {
-        self.list_recursive(&self.secret_path).await
+        tracing::info!("Vault accessor '{}': listing secrets from path: {}", self.name, self.secret_path);
+        let result = self.list_recursive(&self.secret_path).await;
+        match &result {
+            Ok(paths) => tracing::info!("Vault accessor '{}': found {} secrets", self.name, paths.len()),
+            Err(e) => tracing::error!("Vault accessor '{}': listing failed: {}", self.name, e),
+        }
+        result
     }
     
     async fn get(&self, path: &str) -> crate::Result<Option<CertificateData>> {
+        tracing::debug!("Vault accessor '{}': retrieving certificate from path: {}", self.name, path);
+        
         let url = format!(
             "{}/v1/{}/data/{}",
             self.base_url.as_str().trim_end_matches('/'),
             self.mount_path,
             path.trim_start_matches('/')
         );
+        
+        tracing::debug!("Vault API request: GET {}", url);
         
         let response = self.client
             .get(&url)
@@ -148,6 +178,8 @@ impl Accessor for VaultAccessor {
             .await?;
         
         if !response.status().is_success() {
+            tracing::debug!("Vault accessor '{}': no certificate found at path {} (status: {})", 
+                self.name, path, response.status());
             return Ok(None);
         }
         
@@ -160,15 +192,26 @@ impl Accessor for VaultAccessor {
             .and_then(|v| v.as_str());
         
         if let Some(pem_data) = cert_pem {
+            tracing::debug!("Vault accessor '{}': found certificate data at path: {}", self.name, path);
+            
             let (_, pem) = parse_x509_pem(pem_data.as_bytes())
-                .map_err(|e| crate::DoomsdayError::x509(format!("Failed to parse PEM: {}", e)))?;
+                .map_err(|e| {
+                    tracing::error!("Vault accessor '{}': failed to parse PEM at {}: {}", self.name, path, e);
+                    crate::DoomsdayError::x509(format!("Failed to parse PEM: {}", e))
+                })?;
             
             let (_, cert) = parse_x509_certificate(&pem.contents)
-                .map_err(|e| crate::DoomsdayError::x509(format!("Failed to parse certificate: {}", e)))?;
+                .map_err(|e| {
+                    tracing::error!("Vault accessor '{}': failed to parse certificate at {}: {}", self.name, path, e);
+                    crate::DoomsdayError::x509(format!("Failed to parse certificate: {}", e))
+                })?;
             
             let cert_data = CertificateData::from_x509(&cert, pem_data)?;
+            tracing::info!("Vault accessor '{}': successfully parsed certificate from path: {} (subject: {})", 
+                self.name, path, cert_data.subject);
             Ok(Some(cert_data))
         } else {
+            tracing::debug!("Vault accessor '{}': no certificate fields found at path: {}", self.name, path);
             Ok(None)
         }
     }

@@ -52,42 +52,62 @@ pub enum DoomsdayError {
 
 impl DoomsdayError {
     pub fn x509<T: fmt::Display>(msg: T) -> Self {
-        Self::X509(msg.to_string())
+        let error = Self::X509(msg.to_string());
+        tracing::error!("X509 error: {}", error);
+        error
     }
     
     pub fn auth<T: fmt::Display>(msg: T) -> Self {
-        Self::Auth(msg.to_string())
+        let error = Self::Auth(msg.to_string());
+        tracing::warn!("Authentication error: {}", error);
+        error
     }
     
     pub fn backend<T: fmt::Display>(msg: T) -> Self {
-        Self::Backend(msg.to_string())
+        let error = Self::Backend(msg.to_string());
+        tracing::error!("Backend error: {}", error);
+        error
     }
     
     pub fn config<T: fmt::Display>(msg: T) -> Self {
-        Self::Config(msg.to_string())
+        let error = Self::Config(msg.to_string());
+        tracing::error!("Configuration error: {}", error);
+        error
     }
     
     pub fn cache<T: fmt::Display>(msg: T) -> Self {
-        Self::Cache(msg.to_string())
+        let error = Self::Cache(msg.to_string());
+        tracing::error!("Cache error: {}", error);
+        error
     }
     
     pub fn scheduler<T: fmt::Display>(msg: T) -> Self {
-        Self::Scheduler(msg.to_string())
+        let error = Self::Scheduler(msg.to_string());
+        tracing::error!("Scheduler error: {}", error);
+        error
     }
     
     pub fn not_found<T: fmt::Display>(msg: T) -> Self {
-        Self::NotFound(msg.to_string())
+        let error = Self::NotFound(msg.to_string());
+        tracing::debug!("Not found: {}", error);
+        error
     }
     
     pub fn permission_denied<T: fmt::Display>(msg: T) -> Self {
-        Self::PermissionDenied(msg.to_string())
+        let error = Self::PermissionDenied(msg.to_string());
+        tracing::warn!("Permission denied: {}", error);
+        error
     }
     
     pub fn invalid_input<T: fmt::Display>(msg: T) -> Self {
-        Self::InvalidInput(msg.to_string())
+        let error = Self::InvalidInput(msg.to_string());
+        tracing::warn!("Invalid input: {}", error);
+        error
     }
     
     pub fn internal<T: fmt::Display>(msg: T) -> Self {
-        Self::Internal(msg.to_string())
+        let error = Self::Internal(msg.to_string());
+        tracing::error!("Internal error: {}", error);
+        error
     }
 }

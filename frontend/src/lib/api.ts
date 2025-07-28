@@ -25,6 +25,7 @@ async function apiRequest<T>(
   endpoint: string,
   options: RequestInit = {}
 ): Promise<T> {
+  console.log(`API Request: ${API_BASE}${endpoint}`, options);
   const token = typeof window !== 'undefined' 
     ? localStorage.getItem('doomsday-token') 
     : null;

@@ -15,6 +15,8 @@ pub struct Scheduler {
 
 impl Scheduler {
     pub fn new(max_workers: usize) -> Self {
+        tracing::info!("Creating scheduler with {} worker threads", max_workers);
+        
         let (task_sender, task_receiver) = mpsc::unbounded_channel::<TaskInfo>();
         let tasks = Arc::new(DashMap::new());
         let semaphore = Arc::new(Semaphore::new(max_workers));
@@ -25,6 +27,7 @@ impl Scheduler {
             task_sender,
         };
         
+        tracing::debug!("Starting scheduler worker loop");
         // Start the worker loop
         tokio::spawn(Self::worker_loop(
             task_receiver,
@@ -32,14 +35,18 @@ impl Scheduler {
             semaphore,
         ));
         
+        tracing::info!("Scheduler initialized successfully");
         scheduler
     }
     
     pub fn schedule_task(&self, task: Task) -> crate::Result<String> {
         let task_id = Uuid::new_v4().to_string();
+        
+        tracing::debug!("Scheduling task: {:?} (ID: {})", task, task_id);
+        
         let task_info = TaskInfo {
             id: task_id.clone(),
-            task,
+            task: task.clone(),
             created_at: Utc::now(),
             started_at: None,
             completed_at: None,
@@ -50,8 +57,12 @@ impl Scheduler {
         self.tasks.insert(task_id.clone(), task_info.clone());
         
         self.task_sender.send(task_info)
-            .map_err(|e| crate::DoomsdayError::scheduler(format!("Failed to schedule task: {}", e)))?;
+            .map_err(|e| {
+                tracing::error!("Failed to send task to scheduler queue: {}", e);
+                crate::DoomsdayError::scheduler(format!("Failed to schedule task: {}", e))
+            })?;
         
+        tracing::info!("Task scheduled successfully: {:?} (ID: {})", task, task_id);
         Ok(task_id)
     }
     
@@ -82,7 +93,12 @@ impl Scheduler {
         tasks: Arc<DashMap<String, TaskInfo>>,
         semaphore: Arc<Semaphore>,
     ) {
+        tracing::info!("Scheduler worker loop started");
+        
         while let Some(mut task_info) = task_receiver.recv().await {
+            tracing::debug!("Worker loop received task: {} (ID: {})", 
+                format!("{:?}", task_info.task), task_info.id);
+            
             let permit = semaphore.clone().acquire_owned().await.unwrap();
             let tasks_clone = tasks.clone();
             
@@ -90,6 +106,7 @@ impl Scheduler {
                 let _permit = permit; // Keep permit until task completes
                 
                 // Update task status to running
+                tracing::debug!("Starting execution of task: {}", task_info.id);
                 task_info.status = TaskStatus::Running;
                 task_info.started_at = Some(Utc::now());
                 tasks_clone.insert(task_info.id.clone(), task_info.clone());
@@ -101,9 +118,11 @@ impl Scheduler {
                 task_info.completed_at = Some(Utc::now());
                 match result {
                     Ok(()) => {
+                        tracing::info!("Task completed successfully: {}", task_info.id);
                         task_info.status = TaskStatus::Completed;
                     },
                     Err(e) => {
+                        tracing::error!("Task failed: {} - Error: {}", task_info.id, e);
                         task_info.status = TaskStatus::Failed;
                         task_info.error = Some(e.to_string());
                     },
@@ -112,6 +131,8 @@ impl Scheduler {
                 tasks_clone.insert(task_info.id.clone(), task_info);
             });
         }
+        
+        tracing::warn!("Scheduler worker loop ended - this should not happen in normal operation");
     }
     
     async fn execute_task(task: &Task) -> crate::Result<()> {
@@ -132,6 +153,8 @@ impl Scheduler {
     }
     
     pub fn cleanup_completed_tasks(&self, max_age: Duration) {
+        tracing::debug!("Starting cleanup of completed tasks older than {:?}", max_age);
+        
         let cutoff = Utc::now() - chrono::Duration::from_std(max_age).unwrap_or_default();
         
         let expired_task_ids: Vec<String> = self.tasks
@@ -144,8 +167,15 @@ impl Scheduler {
             .map(|entry| entry.key().clone())
             .collect();
         
-        for task_id in expired_task_ids {
-            self.tasks.remove(&task_id);
+        if !expired_task_ids.is_empty() {
+            tracing::info!("Cleaning up {} expired tasks", expired_task_ids.len());
+            for task_id in expired_task_ids {
+                if let Some((_, task)) = self.tasks.remove(&task_id) {
+                    tracing::debug!("Removed expired task: {} (status: {:?})", task_id, task.status);
+                }
+            }
+        } else {
+            tracing::debug!("No expired tasks to clean up");
         }
     }
 }

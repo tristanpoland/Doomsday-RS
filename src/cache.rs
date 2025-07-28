@@ -61,6 +61,7 @@ impl Cache {
         
         // Sort by expiry date
         items.sort_by(|a, b| a.not_after.cmp(&b.not_after));
+        tracing::debug!("Listed {} certificates from cache", items.len());
         items
     }
     
@@ -72,16 +73,23 @@ impl Cache {
     }
     
     pub fn update_from_diff(&self, diff: CacheDiff) -> crate::Result<()> {
+        tracing::debug!("Updating cache: {} items to add, {} to remove", 
+            diff.added.len(), diff.removed.len());
+        
         // Remove deleted items
-        for sha1 in diff.removed {
-            self.remove(&sha1);
+        for sha1 in &diff.removed {
+            if let Some(removed_obj) = self.remove(sha1) {
+                tracing::debug!("Removed certificate from cache: {}", removed_obj.subject);
+            }
         }
         
         // Add or update items
         for (sha1, object) in diff.added {
+            tracing::debug!("Adding/updating certificate in cache: {} ({})", object.subject, sha1);
             self.insert(sha1, object);
         }
         
+        tracing::debug!("Cache update completed, new size: {}", self.len());
         Ok(())
     }
     
