@@ -17,7 +17,7 @@ A modern certificate monitoring and tracking system built with Rust and Next.js,
 
 1. **Clone and configure**:
    ```bash
-   git clone <your-repo>
+   git clone https://github.com/tristanpoland/Doomsday-RS
    cd doomsday-rs
    cp ddayconfig.yml.example ddayconfig.yml
    # Edit ddayconfig.yml with your backend configurations
